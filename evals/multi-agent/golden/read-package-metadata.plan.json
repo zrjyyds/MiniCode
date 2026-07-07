@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "id": "read-package",
+      "dependsOn": [],
+      "allowedTools": [
+        "read_file"
+      ],
+      "successCriteria": [
+        "tool_called"
+      ]
+    },
+    {
+      "id": "summarize-package",
+      "dependsOn": [
+        "read-package"
+      ],
+      "allowedTools": [
+        "none"
+      ],
+      "successCriteria": [
+        "custom_evaluator"
+      ]
+    }
+  ]
+}

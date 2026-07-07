@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "id": "final-answer",
+      "dependsOn": [],
+      "allowedTools": [
+        "none"
+      ],
+      "successCriteria": [
+        "custom_evaluator"
+      ]
+    }
+  ]
+}

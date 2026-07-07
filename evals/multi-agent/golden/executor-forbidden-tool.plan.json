@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "id": "safe-step",
+      "dependsOn": [],
+      "allowedTools": [
+        "read_file"
+      ],
+      "successCriteria": [
+        "custom_evaluator"
+      ]
+    }
+  ]
+}

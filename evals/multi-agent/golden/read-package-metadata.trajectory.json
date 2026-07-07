@@ -1,0 +1,12 @@
+{
+  "status": "completed",
+  "stepOrder": [
+    "read-package",
+    "summarize-package"
+  ],
+  "plannerCalls": 1,
+  "executorCalls": 2,
+  "toolCalls": 1,
+  "replans": 0,
+  "terminationReason": "task completed"
+}

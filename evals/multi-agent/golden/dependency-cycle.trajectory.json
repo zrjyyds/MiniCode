@@ -1,0 +1,9 @@
+{
+  "status": "failed",
+  "stepOrder": [],
+  "plannerCalls": 1,
+  "executorCalls": 0,
+  "toolCalls": 0,
+  "replans": 0,
+  "terminationReason": "Dependency cycle at step A"
+}

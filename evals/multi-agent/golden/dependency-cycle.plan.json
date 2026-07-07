@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "id": "A",
+      "dependsOn": [
+        "B"
+      ],
+      "allowedTools": [
+        "none"
+      ],
+      "successCriteria": [
+        "custom_evaluator"
+      ]
+    },
+    {
+      "id": "B",
+      "dependsOn": [
+        "A"
+      ],
+      "allowedTools": [
+        "none"
+      ],
+      "successCriteria": [
+        "custom_evaluator"
+      ]
+    }
+  ]
+}

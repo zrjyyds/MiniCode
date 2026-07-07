@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "id": "retry-step",
+      "dependsOn": [],
+      "allowedTools": [
+        "none"
+      ],
+      "successCriteria": [
+        "custom_evaluator"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "id": "forbidden",
+      "dependsOn": [],
+      "allowedTools": [
+        "web_fetch"
+      ],
+      "successCriteria": [
+        "custom_evaluator"
+      ]
+    }
+  ]
+}

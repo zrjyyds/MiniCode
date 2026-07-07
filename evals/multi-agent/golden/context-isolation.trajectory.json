@@ -1,0 +1,11 @@
+{
+  "status": "completed",
+  "stepOrder": [
+    "context-step"
+  ],
+  "plannerCalls": 1,
+  "executorCalls": 1,
+  "toolCalls": 0,
+  "replans": 0,
+  "terminationReason": "task completed"
+}

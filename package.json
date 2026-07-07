@@ -17,7 +17,10 @@
     "eval:harness": "tsx scripts/evaluate-agent-harness.ts",
     "replay:badcase": "tsx scripts/replay-agent-badcase.ts",
     "debug:sandbox": "tsx scripts/debug-docker-sandbox.ts",
-    "eval:sandbox": "tsx scripts/evaluate-docker-sandbox.ts"
+    "eval:sandbox": "tsx scripts/evaluate-docker-sandbox.ts",
+    "debug:multi-agent": "tsx scripts/debug-planner-executor.ts",
+    "eval:multi-agent": "tsx scripts/evaluate-planner-executor.ts",
+    "replay:multi-agent-badcase": "tsx scripts/replay-multi-agent-badcase.ts"
   },
   "dependencies": {
     "diff": "^8.0.4",

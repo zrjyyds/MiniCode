@@ -1,0 +1,11 @@
+{
+  "status": "budget_exceeded",
+  "stepOrder": [
+    "tool-loop"
+  ],
+  "plannerCalls": 1,
+  "executorCalls": 1,
+  "toolCalls": 99,
+  "replans": 0,
+  "terminationReason": "budget exceeded"
+}

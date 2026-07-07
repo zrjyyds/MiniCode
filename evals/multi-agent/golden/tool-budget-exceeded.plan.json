@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "id": "tool-loop",
+      "dependsOn": [],
+      "allowedTools": [
+        "read_file"
+      ],
+      "successCriteria": [
+        "custom_evaluator"
+      ]
+    }
+  ]
+}

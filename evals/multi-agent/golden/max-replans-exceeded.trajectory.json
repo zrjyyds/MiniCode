@@ -1,0 +1,12 @@
+{
+  "status": "budget_exceeded",
+  "stepOrder": [
+    "stable-start",
+    "still-failing-1"
+  ],
+  "plannerCalls": 2,
+  "executorCalls": 3,
+  "toolCalls": 0,
+  "replans": 1,
+  "terminationReason": "max replans exceeded"
+}

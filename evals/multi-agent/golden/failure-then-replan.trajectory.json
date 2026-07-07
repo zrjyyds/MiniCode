@@ -1,0 +1,12 @@
+{
+  "status": "completed",
+  "stepOrder": [
+    "stable-start",
+    "replacement-step"
+  ],
+  "plannerCalls": 2,
+  "executorCalls": 3,
+  "toolCalls": 0,
+  "replans": 1,
+  "terminationReason": "task completed"
+}

@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "id": "stable-start",
+      "dependsOn": [],
+      "allowedTools": [
+        "none"
+      ],
+      "successCriteria": [
+        "custom_evaluator"
+      ]
+    },
+    {
+      "id": "still-failing-1",
+      "dependsOn": [
+        "stable-start"
+      ],
+      "allowedTools": [
+        "none"
+      ],
+      "successCriteria": [
+        "custom_evaluator"
+      ]
+    }
+  ]
+}
