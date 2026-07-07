@@ -1,0 +1,10 @@
+{
+  "role_sequence": [
+    "system",
+    "user",
+    "assistant"
+  ],
+  "tool_sequence": [],
+  "tool_status": [],
+  "termination_reason": "assistant_final"
+}

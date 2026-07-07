@@ -13,7 +13,9 @@
     "test": "node test/run-tests.mjs",
     "install-local": "tsx src/install.ts",
     "debug:harness": "tsx scripts/debug-agent-loop.ts",
-    "analyze:harness-trace": "tsx scripts/analyze-harness-trace.ts"
+    "analyze:harness-trace": "tsx scripts/analyze-harness-trace.ts",
+    "eval:harness": "tsx scripts/evaluate-agent-harness.ts",
+    "replay:badcase": "tsx scripts/replay-agent-badcase.ts"
   },
   "dependencies": {
     "diff": "^8.0.4",

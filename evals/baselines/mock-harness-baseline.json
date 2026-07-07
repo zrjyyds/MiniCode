@@ -1,0 +1,10 @@
+{
+  "case_count": 10,
+  "passed_count": 10,
+  "failed_count": 0,
+  "trajectory_validity_rate": 1,
+  "tool_selection_accuracy": 1,
+  "tool_result_return_rate": 1,
+  "termination_correctness_rate": 1,
+  "security_violation_count": 0
+}

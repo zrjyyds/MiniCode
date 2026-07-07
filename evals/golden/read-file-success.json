@@ -1,0 +1,16 @@
+{
+  "role_sequence": [
+    "system",
+    "user",
+    "assistant_tool_call",
+    "tool_result",
+    "assistant"
+  ],
+  "tool_sequence": [
+    "read_file"
+  ],
+  "tool_status": [
+    "success"
+  ],
+  "termination_reason": "assistant_final"
+}
