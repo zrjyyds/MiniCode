@@ -547,7 +547,12 @@ export async function runAgentTurn(args: {
       const result = await args.tools.execute(
         call.toolName,
         call.input,
-        { cwd: args.cwd, permissions: args.permissions },
+        {
+          cwd: args.cwd,
+          permissions: args.permissions,
+          observer: args.observer,
+          turnIndex: lastTurnIndex,
+        },
       )
       if (args.permissions) {
         await emit({

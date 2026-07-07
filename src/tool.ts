@@ -2,10 +2,13 @@ import { z } from 'zod'
 import type { PermissionManager } from './permissions.js'
 import type { SkillSummary } from './skills.js'
 import type { McpServerSummary } from './mcp.js'
+import type { AgentLoopObserver } from './debug/harness-trace.js'
 
 export type ToolContext = {
   cwd: string
   permissions?: PermissionManager
+  observer?: AgentLoopObserver
+  turnIndex?: number
 }
 
 export type BackgroundTaskResult = {

@@ -6,6 +6,7 @@ import {
   loadRuntimeConfig,
   saveMiniCodeSettings,
 } from './config.js'
+import { selectCommandExecutorName } from './execution/index.js'
 import { initializeRepo, renderInitReport } from './init.js'
 import { discoverInstructionFiles, renderMemoryReport } from './memory.js'
 import type { ToolRegistry } from './tool.js'
@@ -252,6 +253,7 @@ export async function tryHandleLocalCommand(
       `model: ${runtime.model}`,
       `baseUrl: ${runtime.baseUrl}`,
       `auth: ${runtime.authToken ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY'}`,
+      `command executor: ${selectCommandExecutorName()}`,
       `mcp servers: ${Object.keys(runtime.mcpServers).length}`,
       runtime.sourceSummary,
     ].join('\n')

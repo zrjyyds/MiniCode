@@ -1,11 +1,9 @@
-import { execFile, spawn } from 'node:child_process'
-import { promisify } from 'node:util'
+import { spawn } from 'node:child_process'
 import { z } from 'zod'
 import { registerBackgroundShellTask } from '../background-tasks.js'
+import { createCommandExecutor } from '../execution/index.js'
 import type { ToolDefinition } from '../tool.js'
 import { resolveToolPath } from '../workspace.js'
-
-const execFileAsync = promisify(execFile)
 
 // Claude Code separates "read-only shell commands" from mutating/runtime commands.
 // We keep the same shape here so safe observability commands are easy to extend.
@@ -230,11 +228,30 @@ export const runCommandTool: ToolDefinition<Input> = {
       }
     }
 
-    const result = await execFileAsync(command, args, {
-      cwd: effectiveCwd,
-      maxBuffer: 1024 * 1024,
-      env: process.env,
+    const executor = createCommandExecutor()
+    const result = await executor.execute({
+      command,
+      args,
+      workingDirectory: effectiveCwd,
+      environment: process.env,
+      maxOutputBytes: 1024 * 1024,
+      useShell,
+      trace: context.observer,
+      turnIndex: context.turnIndex,
     })
+
+    if (result.errorCode) {
+      return {
+        ok: false,
+        output: [
+          `Command executor failed: ${result.errorCode}`,
+          result.stderr || result.stdout,
+          `backend=${result.backend}`,
+          result.containerName ? `container=${result.containerName}` : '',
+          `cleanup=${result.cleanupStatus}`,
+        ].filter(Boolean).join('\n'),
+      }
+    }
 
     return {
       ok: true,

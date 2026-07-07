@@ -15,7 +15,9 @@
     "debug:harness": "tsx scripts/debug-agent-loop.ts",
     "analyze:harness-trace": "tsx scripts/analyze-harness-trace.ts",
     "eval:harness": "tsx scripts/evaluate-agent-harness.ts",
-    "replay:badcase": "tsx scripts/replay-agent-badcase.ts"
+    "replay:badcase": "tsx scripts/replay-agent-badcase.ts",
+    "debug:sandbox": "tsx scripts/debug-docker-sandbox.ts",
+    "eval:sandbox": "tsx scripts/evaluate-docker-sandbox.ts"
   },
   "dependencies": {
     "diff": "^8.0.4",
