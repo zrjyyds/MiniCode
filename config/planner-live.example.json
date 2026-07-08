@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0",
+  "providers": [
+    {
+      "id": "provider-a",
+      "type": "anthropic-compatible",
+      "baseUrlEnv": "MINICODE_PLANNER_A_BASE_URL",
+      "authTokenEnv": "MINICODE_PLANNER_A_AUTH_TOKEN",
+      "models": [
+        {
+          "id": "planner-model-a",
+          "model": "replace-with-provider-model-id",
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "benchmark": {
+    "repetitions": 1,
+    "temperature": 0,
+    "maxOutputTokens": 4096,
+    "requestTimeoutMs": 90000,
+    "maxRequests": 20,
+    "maxTotalInputTokens": 200000,
+    "maxTotalOutputTokens": 50000,
+    "maxFailures": 10,
+    "maxConsecutiveFailures": 3,
+    "maxTotalDurationMs": 600000,
+    "maxRepairAttempts": 1
+  }
+}
