@@ -89,6 +89,15 @@ type TtyAppArgs = {
   sessionId: string
   alreadySavedCount: number
   resumeTarget?: string | 'picker'
+  status?: {
+    mode: string
+    provider: string
+    model: string
+    baseUrl?: string
+    auth: string
+    sourceSummary?: string
+    mcpServerCount?: number
+  }
 }
 
 type PendingApproval = {
@@ -1335,6 +1344,7 @@ async function handleInput(
     cwd: args.cwd,
     tools: args.tools,
     permissionSummary: args.permissions.getSummary(),
+    status: args.status,
   })
   if (localCommandResult !== null) {
     pushTranscriptEntry(state, {

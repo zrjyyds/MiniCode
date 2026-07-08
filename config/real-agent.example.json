@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "protocol": "auto",
+  "baseUrlEnv": "MINICODE_REAL_BASE_URL",
+  "apiKeyEnv": "MINICODE_REAL_API_KEY",
+  "modelEnv": "MINICODE_REAL_MODEL",
+  "requestTimeoutMs": 120000,
+  "maxOutputTokens": 8192,
+  "maxRetries": 2
+}

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import path from 'node:path'
 import readline from 'node:readline'
 import process from 'node:process'
 import { AnthropicModelAdapter } from './anthropic-adapter.js'
@@ -14,6 +15,13 @@ import { summarizeMcpServers } from './mcp-status.js'
 import { MockModelAdapter } from './mock-model.js'
 import { PermissionManager } from './permissions.js'
 import { buildSystemPrompt } from './prompt.js'
+import {
+  createRealAgentAdapter,
+  loadRealAgentConfig,
+  realAgentProtocolLabel,
+  resolveRealAgentConfig,
+  type ResolvedRealAgentConfig,
+} from './real-agent/index.js'
 import { createDefaultToolRegistry, hydrateMcpTools } from './tools/index.js'
 import type { ChatMessage } from './types.js'
 import { renderBanner } from './ui.js'
@@ -28,6 +36,7 @@ import { createContentReplacementState } from './utils/tool-result-storage.js'
 async function main(): Promise<void> {
   const cwd = process.cwd()
   const argv = process.argv.slice(2)
+  const modelMode = process.env.MINI_CODE_MODEL_MODE ?? 'mock'
 
   let resumeTarget: string | 'picker' | undefined
   const resumeIndex = argv.indexOf('--resume')
@@ -59,9 +68,29 @@ async function main(): Promise<void> {
 
   const isInteractiveTerminal = Boolean(process.stdin.isTTY && process.stdout.isTTY)
   let runtime = null
+  let realConfig: ResolvedRealAgentConfig | null = null
   try {
-    runtime = await loadRuntimeConfig()
-  } catch {
+    if (modelMode === 'real') {
+      const configPath = path.resolve(
+        process.env.MINI_CODE_REAL_CONFIG ?? path.join('config', 'real-agent.example.json'),
+      )
+      const config = await loadRealAgentConfig(configPath)
+      realConfig = resolveRealAgentConfig(config, configPath)
+      runtime = {
+        model: realConfig.model,
+        baseUrl: realConfig.baseUrl,
+        apiKey: realConfig.apiKey,
+        maxOutputTokens: realConfig.maxOutputTokens,
+        mcpServers: realConfig.mcpServers ?? {},
+        sourceSummary: `real-agent config: ${realConfig.sourcePath}`,
+      }
+    } else if (modelMode === 'legacy-anthropic') {
+      runtime = await loadRuntimeConfig()
+    }
+  } catch (error) {
+    if (modelMode === 'real') {
+      throw error
+    }
     runtime = null
   }
 
@@ -79,9 +108,39 @@ async function main(): Promise<void> {
   const permissions = new PermissionManager(cwd)
   await permissions.whenReady()
   const model =
-    process.env.MINI_CODE_MODEL_MODE === 'mock'
-      ? new MockModelAdapter()
-      : new AnthropicModelAdapter(tools, loadRuntimeConfig)
+    modelMode === 'real' && realConfig
+      ? createRealAgentAdapter({ config: realConfig, tools })
+      : modelMode === 'legacy-anthropic'
+        ? new AnthropicModelAdapter(tools, loadRuntimeConfig)
+        : new MockModelAdapter()
+  const status = {
+    mode: modelMode,
+    provider:
+      modelMode === 'real' && realConfig
+        ? realAgentProtocolLabel(realConfig.protocol)
+        : modelMode === 'legacy-anthropic'
+          ? 'anthropic-messages'
+          : 'mock',
+    model:
+      modelMode === 'real' && realConfig
+        ? realConfig.model
+        : runtime?.model ?? 'mock',
+    baseUrl:
+      modelMode === 'real' && realConfig
+        ? realConfig.baseUrl
+        : runtime?.baseUrl,
+    auth:
+      modelMode === 'real'
+        ? 'MINICODE_REAL_API_KEY'
+        : modelMode === 'legacy-anthropic'
+          ? (runtime?.authToken ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY')
+          : 'none',
+    sourceSummary:
+      modelMode === 'real' && realConfig
+        ? `real-agent config: ${realConfig.sourcePath}`
+        : runtime?.sourceSummary,
+    mcpServerCount: Object.keys(runtime?.mcpServers ?? {}).length,
+  }
   let messages: ChatMessage[] = [
     {
       role: 'system',
@@ -131,6 +190,7 @@ async function main(): Promise<void> {
         sessionId,
         alreadySavedCount: 0,
         resumeTarget: resolvedResumeTarget,
+        status,
       })
       return
     }
@@ -213,6 +273,7 @@ async function main(): Promise<void> {
           cwd,
           tools,
           permissionSummary: permissions.getSummary(),
+          status,
         })
         if (localCommandResult !== null) {
           console.log(`\n${localCommandResult}\n`)

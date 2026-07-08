@@ -185,6 +185,15 @@ export async function tryHandleLocalCommand(
     cwd?: string
     tools?: ToolRegistry
     permissionSummary?: string[]
+    status?: {
+      mode: string
+      provider: string
+      model: string
+      baseUrl?: string
+      auth: string
+      sourceSummary?: string
+      mcpServerCount?: number
+    }
   },
 ): Promise<string | null> {
   const cwd = context?.cwd ?? process.cwd()
@@ -248,8 +257,23 @@ export async function tryHandleLocalCommand(
   }
 
   if (input === '/status') {
+    if (context?.status) {
+      return [
+        `mode: ${context.status.mode}`,
+        `provider: ${context.status.provider}`,
+        `model: ${context.status.model}`,
+        context.status.baseUrl ? `baseUrl: ${context.status.baseUrl}` : undefined,
+        `auth: ${context.status.auth}`,
+        `command executor: ${selectCommandExecutorName()}`,
+        `mcp servers: ${context.status.mcpServerCount ?? context.tools?.getMcpServers().length ?? 0}`,
+        context.status.sourceSummary,
+      ].filter(Boolean).join('\n')
+    }
+
     const runtime = await loadRuntimeConfig()
     return [
+      'mode: legacy-anthropic',
+      'provider: anthropic-messages',
       `model: ${runtime.model}`,
       `baseUrl: ${runtime.baseUrl}`,
       `auth: ${runtime.authToken ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY'}`,

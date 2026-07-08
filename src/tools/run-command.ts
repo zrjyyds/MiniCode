@@ -46,6 +46,30 @@ function isReadOnlyCommand(command: string): boolean {
   return READONLY_COMMANDS.has(command)
 }
 
+function classifyPolicyDeniedCommand(command: string, args: string[]): string | null {
+  const normalized = command.toLowerCase()
+  const normalizedArgs = args.map(arg => arg.toLowerCase())
+  if (['sudo', 'su', 'runas'].includes(normalized)) {
+    return `Administrator command is not allowed: ${command}`
+  }
+  if (['curl', 'wget', 'ssh', 'scp', 'sftp', 'ftp', 'nc', 'ncat', 'telnet'].includes(normalized)) {
+    return `Network command is not allowed: ${command}`
+  }
+  if (normalized === 'npm') {
+    const subcommand = normalizedArgs[0] ?? ''
+    if (['install', 'i', 'add', 'link'].includes(subcommand)) {
+      return `npm dependency installation is not allowed in this execution policy`
+    }
+    if (normalizedArgs.includes('-g') || normalizedArgs.includes('--global')) {
+      return `global npm changes are not allowed in this execution policy`
+    }
+    if (subcommand === 'config' && ['set', 'delete', 'edit'].includes(normalizedArgs[1] ?? '')) {
+      return `npm config mutation is not allowed in this execution policy`
+    }
+  }
+  return null
+}
+
 type Input = {
   command: string
   args?: string[]
@@ -192,6 +216,14 @@ export const runCommandTool: ToolDefinition<Input> = {
     const args = useShell
       ? ['-lc', backgroundShell ? stripTrailingBackgroundOperator(input.command) : input.command]
       : normalized.args
+
+    const denied = classifyPolicyDeniedCommand(normalized.command, normalized.args)
+    if (denied) {
+      return {
+        ok: false,
+        output: `Command denied by execution policy: ${denied}`,
+      }
+    }
 
     const forcePromptReason =
       !useShell && !knownCommand
