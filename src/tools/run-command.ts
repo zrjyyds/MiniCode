@@ -277,6 +277,9 @@ export const runCommandTool: ToolDefinition<Input> = {
         ok: false,
         output: [
           `Command executor failed: ${result.errorCode}`,
+          `exitCode=${result.exitCode ?? 'null'}`,
+          result.signal ? `signal=${result.signal}` : '',
+          `timedOut=${result.timedOut}`,
           result.stderr || result.stdout,
           `backend=${result.backend}`,
           result.containerName ? `container=${result.containerName}` : '',

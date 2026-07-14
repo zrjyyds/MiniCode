@@ -51,6 +51,170 @@ describe('command executor selection', () => {
     assert.equal(result.exitCode, 0)
     assert.match(result.stdout, /host-ok/)
   })
+
+  it('runs node --version through the host executor on the current platform', async () => {
+    const result = await new HostCommandExecutor().execute({
+      command: 'node',
+      args: ['--version'],
+      workingDirectory: process.cwd(),
+    })
+    assert.equal(result.backend, 'host')
+    assert.equal(result.errorCode, undefined)
+    assert.equal(result.exitCode, 0)
+    assert.match(result.stdout.trim(), /^v?\d+\.\d+\.\d+/)
+  })
+
+  it('does not bypass an explicit Windows PATH that cannot resolve node', async () => {
+    if (process.platform !== 'win32') return
+
+    const pathKey = Object.keys(process.env).find(name => name.toLowerCase() === 'path') ?? 'PATH'
+    const env = { ...process.env, [pathKey]: '' }
+    const result = await new HostCommandExecutor().execute({
+      command: 'node',
+      args: ['--version'],
+      workingDirectory: process.cwd(),
+      environment: env,
+    })
+    assert.equal(result.backend, 'host')
+    assert.equal(result.errorCode, 'COMMAND_FAILED')
+    assert.equal(result.exitCode, null)
+  })
+
+  it('resolves Windows command shims through PATHEXT without global shell mode', async () => {
+    if (process.platform !== 'win32') return
+
+    const result = await new HostCommandExecutor().execute({
+      command: 'npm',
+      args: ['--version'],
+      workingDirectory: process.cwd(),
+    })
+    assert.equal(result.backend, 'host')
+    assert.equal(result.errorCode, undefined)
+    assert.equal(result.exitCode, 0)
+    assert.match(result.stdout.trim(), /^\d+\.\d+\.\d+/)
+  })
+
+  it('round-trips special argv through Windows cmd shims', async () => {
+    if (process.platform !== 'win32') return
+
+    async function runEchoShim(args: string[]): Promise<string[]> {
+      const dir = await tempDir()
+      const shim = path.join(dir, 'argv-shim.cmd')
+      await writeFile(shim, [
+        '@echo off',
+        ...args.map((_, index) => `echo [%~${index + 1}]`),
+        '',
+      ].join('\r\n'), 'utf8')
+      const result = await new HostCommandExecutor().execute({
+        command: shim,
+        args,
+        workingDirectory: process.cwd(),
+        environment: { ...process.env, PATH: 'TESTPATH' },
+      })
+      assert.equal(result.errorCode, undefined)
+      return result.stdout.trimEnd().split(/\r?\n/).map(line => {
+        assert.match(line, /^\[.*\]$/)
+        return line.slice(1, -1)
+      })
+    }
+
+    const firstBatch = [
+      'plain',
+      'hello world',
+      'a&b',
+      'a|b',
+      'a<b',
+      'a>b',
+      'a^b',
+      '100%',
+      '%PATH%',
+    ]
+    assert.deepEqual(await runEchoShim(firstBatch), firstBatch)
+
+    const secondBatch = [
+      '',
+      'path with spaces',
+      'a"b',
+    ]
+    assert.deepEqual(await runEchoShim(secondBatch), secondBatch)
+  })
+
+  it('uses case-insensitive Windows PATH PATHEXT and ComSpec environment keys', async () => {
+    if (process.platform !== 'win32') return
+
+    const dir = await tempDir()
+    const helper = path.join(dir, 'case-dump.mjs')
+    const shim = path.join(dir, 'case-shim.cmd')
+    await writeFile(helper, 'console.log(JSON.stringify(process.argv.slice(2)))\n', 'utf8')
+    await writeFile(shim, [
+      '@echo off',
+      '"%NODE_EXE%" "%~dp0case-dump.mjs" %1',
+      '',
+    ].join('\r\n'), 'utf8')
+
+    const result = await new HostCommandExecutor().execute({
+      command: 'case-shim',
+      args: ['ok'],
+      workingDirectory: process.cwd(),
+      environment: {
+        path: dir,
+        pathext: '.CMD',
+        comspec: process.env.ComSpec ?? 'C:\\Windows\\System32\\cmd.exe',
+        NODE_EXE: process.execPath,
+        SystemRoot: process.env.SystemRoot,
+        TEMP: process.env.TEMP,
+        TMP: process.env.TMP,
+      },
+    })
+    assert.equal(result.errorCode, undefined)
+    assert.deepEqual(JSON.parse(result.stdout.trim()), ['ok'])
+  })
+
+  it('resolves relative Windows command paths from the request working directory', async () => {
+    if (process.platform !== 'win32') return
+
+    const dir = await tempDir()
+    const helper = path.join(dir, 'relative-dump.mjs')
+    const shim = path.join(dir, 'fixture.cmd')
+    await writeFile(helper, 'console.log(JSON.stringify(process.argv.slice(2)))\n', 'utf8')
+    await writeFile(shim, [
+      '@echo off',
+      '"%NODE_EXE%" "%~dp0relative-dump.mjs" %1',
+      '',
+    ].join('\r\n'), 'utf8')
+
+    const result = await new HostCommandExecutor().execute({
+      command: '.\\fixture.cmd',
+      args: ['relative-ok'],
+      workingDirectory: dir,
+      environment: { ...process.env, NODE_EXE: process.execPath },
+    })
+    assert.equal(result.errorCode, undefined)
+    assert.deepEqual(JSON.parse(result.stdout.trim()), ['relative-ok'])
+  })
+
+  it('reports host command resolution failures with safe diagnostics', async () => {
+    const result = await new HostCommandExecutor().execute({
+      command: 'minicode-definitely-missing-command',
+      args: ['--version'],
+      workingDirectory: process.cwd(),
+    })
+    assert.equal(result.backend, 'host')
+    assert.equal(result.errorCode, 'COMMAND_FAILED')
+    assert.equal(result.exitCode, null)
+    assert.match(result.stderr, /ENOENT|not recognized|spawn/i)
+  })
+
+  it('does not include failed command argv in fallback host diagnostics', async () => {
+    const sentinel = 'sentinel-secret-argv'
+    const result = await new HostCommandExecutor().execute({
+      command: 'minicode-definitely-missing-command',
+      args: [sentinel],
+      workingDirectory: process.cwd(),
+    })
+    assert.equal(result.errorCode, 'COMMAND_FAILED')
+    assert.doesNotMatch(result.stderr, new RegExp(sentinel))
+  })
 })
 
 describe('docker command builder', () => {
