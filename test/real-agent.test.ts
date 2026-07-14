@@ -4,7 +4,13 @@ import path from 'node:path'
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { z } from 'zod'
-import { runAgentLiveEvaluation } from '../src/evaluation/agent-live.js'
+import type { RuntimeConfig } from '../src/config.js'
+import { createAcceptanceWorkspace } from '../src/evaluation/acceptance-workspace.js'
+import {
+  assertAcceptanceMcpReady,
+  createAcceptanceMcpServers,
+  runAgentLiveEvaluation,
+} from '../src/evaluation/agent-live.js'
 import {
   AnthropicMessagesRealAdapter,
   OpenAIChatCompletionsRealAdapter,
@@ -13,6 +19,7 @@ import {
   validateRealAgentConfig,
 } from '../src/real-agent/index.js'
 import { ToolRegistry } from '../src/tool.js'
+import { createDefaultToolRegistry, hydrateMcpTools } from '../src/tools/index.js'
 import type { ChatMessage } from '../src/types.js'
 
 function tempDir(): Promise<string> {
@@ -418,5 +425,36 @@ describe('agent live evaluation', () => {
     })
     assert.equal(summary.results.length, 10)
     assert.equal(summary.metrics.skipped, 10)
+  })
+
+  it('hydrates the call-local-mcp acceptance server from the MiniCode project root', async () => {
+    const dir = await tempDir()
+    const workspace = await createAcceptanceWorkspace(path.join(dir, 'acceptance-workspace'))
+    const mcpServerScript = path.resolve('scripts', 'test-mcp-server.ts')
+    const projectRoot = path.dirname(path.dirname(mcpServerScript))
+    const mcpServers = createAcceptanceMcpServers({ mcpServerScript, workspace })
+    assert.equal(mcpServers.acceptance?.cwd, projectRoot)
+    assert.notEqual(mcpServers.acceptance?.cwd, workspace)
+
+    const runtime: RuntimeConfig = {
+      model: 'test-model',
+      baseUrl: 'https://example.invalid',
+      apiKey: 'secret-value',
+      maxOutputTokens: 128,
+      sourceSummary: 'test runtime',
+      mcpServers,
+    }
+    const registry = await createDefaultToolRegistry({ cwd: workspace, runtime })
+    try {
+      await hydrateMcpTools({ cwd: workspace, runtime, tools: registry })
+      assertAcceptanceMcpReady(registry)
+      const server = registry.getMcpServers().find(entry => entry.name === 'acceptance')
+      assert.equal(server?.status, 'connected')
+      assert.equal(server?.toolCount, 2)
+      assert.ok(registry.find('mcp__acceptance__get_project_summary'))
+      assert.ok(registry.find('mcp__acceptance__count_workspace_files'))
+    } finally {
+      await registry.dispose()
+    }
   })
 })

@@ -116,6 +116,49 @@ function renderMarkdown(summary: AgentLiveSummary): string {
   ].join('\n')
 }
 
+export function createAcceptanceMcpServers(args: {
+  mcpServerScript: string
+  workspace: string
+}): RuntimeConfig['mcpServers'] {
+  const scriptPath = path.resolve(args.mcpServerScript)
+  return {
+    acceptance: {
+      command: process.execPath,
+      args: ['--import', 'tsx', scriptPath, args.workspace],
+      cwd: path.dirname(path.dirname(scriptPath)),
+      protocol: 'content-length' as const,
+    },
+  }
+}
+
+function agentLiveError(code: string, message: string): Error {
+  const error = new Error(message)
+  error.name = code
+  return error
+}
+
+export function assertAcceptanceMcpReady(tools: Awaited<ReturnType<typeof createDefaultToolRegistry>>): void {
+  const server = tools.getMcpServers().find(entry => entry.name === 'acceptance')
+  if (!server || server.status !== 'connected') {
+    throw agentLiveError(
+      'MCP_ACCEPTANCE_SERVER_UNAVAILABLE',
+      `Acceptance MCP server is not connected${server?.error ? `: ${server.error}` : '.'}`,
+    )
+  }
+
+  const requiredTools = [
+    'mcp__acceptance__get_project_summary',
+    'mcp__acceptance__count_workspace_files',
+  ]
+  const missing = requiredTools.find(name => !tools.find(name))
+  if (missing) {
+    throw agentLiveError(
+      'MCP_ACCEPTANCE_TOOL_MISSING',
+      `Acceptance MCP tool is not registered: ${missing}`,
+    )
+  }
+}
+
 async function runOneCase(args: {
   testCase: (typeof CASES)[number]
   realConfig: ReturnType<typeof resolveRealAgentConfig>
@@ -126,13 +169,10 @@ async function runOneCase(args: {
   const workspace = await createAcceptanceWorkspace(path.join(caseOutput, 'acceptance-workspace'))
   const mcpServers: RuntimeConfig['mcpServers'] =
     args.testCase.id === 'call-local-mcp'
-      ? {
-          acceptance: {
-            command: process.execPath,
-            args: ['--import', 'tsx', args.mcpServerScript, workspace],
-            protocol: 'content-length' as const,
-          },
-        }
+      ? createAcceptanceMcpServers({
+          mcpServerScript: args.mcpServerScript,
+          workspace,
+        })
       : {}
   const runtime: RuntimeConfig = {
     model: args.realConfig.model,
@@ -143,7 +183,22 @@ async function runOneCase(args: {
     mcpServers,
   }
   const tools = await createDefaultToolRegistry({ cwd: workspace, runtime })
-  await hydrateMcpTools({ cwd: workspace, runtime, tools })
+  try {
+    await hydrateMcpTools({ cwd: workspace, runtime, tools })
+    if (args.testCase.id === 'call-local-mcp') {
+      assertAcceptanceMcpReady(tools)
+    }
+  } catch (error) {
+    await tools.dispose().catch(() => {})
+    return {
+      caseId: args.testCase.id,
+      status: 'failed',
+      requests: 0,
+      toolCalls: 0,
+      errorCode: error instanceof Error ? error.name : 'AGENT_LIVE_ERROR',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    }
+  }
   const permissions = new PermissionManager(workspace, async () => ({ decision: 'allow_once' }))
   await permissions.whenReady()
   const model = createRealAgentAdapter({ config: args.realConfig, tools })
