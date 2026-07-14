@@ -13,7 +13,7 @@ import {
 } from '../real-agent/index.js'
 import { saveSession, loadSession } from '../session.js'
 import { createDefaultToolRegistry, hydrateMcpTools } from '../tools/index.js'
-import type { ChatMessage } from '../types.js'
+import type { ChatMessage, ModelAdapter } from '../types.js'
 import { HarnessTraceRecorder } from '../debug/harness-trace.js'
 import { createAcceptanceWorkspace } from './acceptance-workspace.js'
 
@@ -68,6 +68,23 @@ export type AgentLiveOptions = {
   maxRequests: number
   maxToolCalls: number
   timeoutMs: number
+  modelFactory?: (args: {
+    config: ReturnType<typeof resolveRealAgentConfig>
+    tools: Awaited<ReturnType<typeof createDefaultToolRegistry>>
+    caseId: AgentLiveCaseId
+  }) => ModelAdapter
+}
+
+type AgentLiveAccounting = {
+  requests: number
+  toolCalls: number
+}
+
+type AgentLiveBudgetState = {
+  maxRequests: number
+  maxToolCalls: number
+  requests: number
+  toolCalls: number
 }
 
 const CASES: Array<{ id: AgentLiveCaseId; prompt: string; maxSteps: number }> = [
@@ -137,6 +154,48 @@ function agentLiveError(code: string, message: string): Error {
   return error
 }
 
+function isLiveAgentBudgetError(code: string | undefined): boolean {
+  return code === 'LIVE_AGENT_REQUEST_BUDGET_EXCEEDED' ||
+    code === 'LIVE_AGENT_TOOL_CALL_BUDGET_EXCEEDED' ||
+    code === 'LIVE_AGENT_BUDGET_EXCEEDED'
+}
+
+function createBudgetedModel(
+  model: ModelAdapter,
+  accounting: AgentLiveAccounting,
+  budget: AgentLiveBudgetState,
+): ModelAdapter {
+  return {
+    async next(messages) {
+      if (budget.requests >= budget.maxRequests) {
+        throw agentLiveError(
+          'LIVE_AGENT_REQUEST_BUDGET_EXCEEDED',
+          `Live agent request budget exceeded: ${budget.requests}/${budget.maxRequests}`,
+        )
+      }
+      // Count an actual request attempt once the budget guard allows model.next,
+      // even if the provider later fails during fetch or streaming.
+      budget.requests += 1
+      accounting.requests += 1
+      return model.next(messages)
+    },
+  }
+}
+
+function recordBudgetedToolStart(
+  accounting: AgentLiveAccounting,
+  budget: AgentLiveBudgetState,
+): void {
+  if (budget.toolCalls >= budget.maxToolCalls) {
+    throw agentLiveError(
+      'LIVE_AGENT_TOOL_CALL_BUDGET_EXCEEDED',
+      `Live agent tool-call budget exceeded: ${budget.toolCalls}/${budget.maxToolCalls}`,
+    )
+  }
+  budget.toolCalls += 1
+  accounting.toolCalls += 1
+}
+
 export function assertAcceptanceMcpReady(tools: Awaited<ReturnType<typeof createDefaultToolRegistry>>): void {
   const server = tools.getMcpServers().find(entry => entry.name === 'acceptance')
   if (!server || server.status !== 'connected') {
@@ -164,6 +223,8 @@ async function runOneCase(args: {
   realConfig: ReturnType<typeof resolveRealAgentConfig>
   outputDir: string
   mcpServerScript: string
+  budget: AgentLiveBudgetState
+  modelFactory?: AgentLiveOptions['modelFactory']
 }): Promise<AgentLiveRunResult> {
   const caseOutput = path.join(args.outputDir, args.testCase.id)
   const workspace = await createAcceptanceWorkspace(path.join(caseOutput, 'acceptance-workspace'))
@@ -182,6 +243,7 @@ async function runOneCase(args: {
     sourceSummary: `real-agent config: ${args.realConfig.sourcePath}`,
     mcpServers,
   }
+  const accounting: AgentLiveAccounting = { requests: 0, toolCalls: 0 }
   const tools = await createDefaultToolRegistry({ cwd: workspace, runtime })
   try {
     await hydrateMcpTools({ cwd: workspace, runtime, tools })
@@ -201,7 +263,10 @@ async function runOneCase(args: {
   }
   const permissions = new PermissionManager(workspace, async () => ({ decision: 'allow_once' }))
   await permissions.whenReady()
-  const model = createRealAgentAdapter({ config: args.realConfig, tools })
+  const rawModel = args.modelFactory
+    ? args.modelFactory({ config: args.realConfig, tools, caseId: args.testCase.id })
+    : createRealAgentAdapter({ config: args.realConfig, tools })
+  const model = createBudgetedModel(rawModel, accounting, args.budget)
   const trace = new HarnessTraceRecorder({
     outputDir: path.join(caseOutput, 'trace'),
     scenario: args.testCase.id,
@@ -231,6 +296,7 @@ async function runOneCase(args: {
       permissions,
       maxSteps: args.testCase.maxSteps,
       modelName: args.realConfig.model,
+      onToolStart: () => recordBudgetedToolStart(accounting, args.budget),
       observer: trace,
     })
     permissions.endTurn()
@@ -253,6 +319,7 @@ async function runOneCase(args: {
         permissions,
         maxSteps: 8,
         modelName: args.realConfig.model,
+        onToolStart: () => recordBudgetedToolStart(accounting, args.budget),
         observer: trace,
       })
       permissions.endTurn()
@@ -261,12 +328,11 @@ async function runOneCase(args: {
     await trace.record({ event_type: 'run_completed', turn_index: 0, termination_reason: 'case_completed' })
     await trace.close()
     await tools.dispose()
-    const toolCalls = messages.filter(message => message.role === 'assistant_tool_call').length
     return {
       caseId: args.testCase.id,
       status: 'passed',
-      requests: messages.filter(message => message.role === 'assistant' || message.role === 'assistant_tool_call').length,
-      toolCalls,
+      requests: accounting.requests,
+      toolCalls: accounting.toolCalls,
       traceDir: path.join(caseOutput, 'trace'),
     }
   } catch (error) {
@@ -281,8 +347,8 @@ async function runOneCase(args: {
     return {
       caseId: args.testCase.id,
       status: 'failed',
-      requests: messages.filter(message => message.role === 'assistant' || message.role === 'assistant_tool_call').length,
-      toolCalls: messages.filter(message => message.role === 'assistant_tool_call').length,
+      requests: accounting.requests,
+      toolCalls: accounting.toolCalls,
       errorCode: error instanceof Error ? error.name : 'AGENT_LIVE_ERROR',
       errorMessage: error instanceof Error ? error.message : String(error),
       traceDir: path.join(caseOutput, 'trace'),
@@ -313,10 +379,14 @@ export async function runAgentLiveEvaluation(options: AgentLiveOptions): Promise
   } else {
     const realConfig = resolveRealAgentConfig(rawConfig, options.configPath)
     const mcpServerScript = path.resolve('scripts', 'test-mcp-server.ts')
-    let usedRequests = 0
-    let usedToolCalls = 0
+    const budget: AgentLiveBudgetState = {
+      maxRequests: options.maxRequests,
+      maxToolCalls: options.maxToolCalls,
+      requests: 0,
+      toolCalls: 0,
+    }
     for (const testCase of cases) {
-      if (usedRequests >= options.maxRequests || usedToolCalls >= options.maxToolCalls) {
+      if (budget.requests >= budget.maxRequests || budget.toolCalls >= budget.maxToolCalls) {
         results.push({
           caseId: testCase.id,
           status: 'skipped',
@@ -326,11 +396,20 @@ export async function runAgentLiveEvaluation(options: AgentLiveOptions): Promise
         })
         continue
       }
-      const result = await runOneCase({ testCase, realConfig, outputDir: options.outputDir, mcpServerScript })
-      usedRequests += result.requests
-      usedToolCalls += result.toolCalls
+      const result = await runOneCase({
+        testCase,
+        realConfig,
+        outputDir: options.outputDir,
+        mcpServerScript,
+        budget,
+        modelFactory: options.modelFactory,
+      })
       results.push(result)
-      if (result.status === 'failed' && ['text-response', 'read-file', 'fix-code-and-test'].includes(result.caseId)) {
+      if (
+        result.status === 'failed' &&
+        !isLiveAgentBudgetError(result.errorCode) &&
+        ['text-response', 'read-file', 'fix-code-and-test'].includes(result.caseId)
+      ) {
         break
       }
     }
