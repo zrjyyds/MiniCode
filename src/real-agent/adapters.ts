@@ -8,6 +8,7 @@ import type {
   ToolCall,
 } from '../types.js'
 import type { ResolvedRealAgentConfig, RealAgentProtocol } from './config.js'
+import { readSseJsonEvents } from './sse.js'
 
 type FetchLike = typeof fetch
 
@@ -353,6 +354,8 @@ export class OpenAIChatCompletionsRealAdapter implements ModelAdapter {
   }
 
   async next(messages: ChatMessage[]): Promise<AgentStep> {
+    if (this.options.config.stream) return this.nextStream(messages)
+
     const response = await postJsonWithRetries({
       url: `${this.options.config.baseUrl.replace(/\/$/, '')}/v1/chat/completions`,
       headers: {
@@ -399,6 +402,139 @@ export class OpenAIChatCompletionsRealAdapter implements ModelAdapter {
       }),
     })
   }
+
+  private async nextStream(messages: ChatMessage[]): Promise<AgentStep> {
+    const body: JsonObject = {
+      model: this.options.config.model,
+      messages: toOpenAiChatMessages(messages),
+      tools: openAiToolDefinitions(this.options.tools),
+      max_tokens: this.options.config.maxOutputTokens,
+      stream: true,
+    }
+    if (this.options.config.streamIncludeUsage) {
+      body.stream_options = { include_usage: true }
+    }
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), this.options.config.requestTimeoutMs)
+    try {
+      const response = await this.fetchImpl(`${this.options.config.baseUrl.replace(/\/$/, '')}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          Authorization: `Bearer ${this.options.config.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+      const events = await readSseJsonEvents(response)
+      return openAiChatStepFromStreamEvents(events, this.options.config.streamToolCallIdPrefix)
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') throw new Error('SSE stream request timed out')
+      throw error instanceof Error ? error : new Error(String(error))
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+}
+
+type StreamToolCallAccumulator = {
+  id: string
+  type?: string
+  name: string
+  arguments: string
+}
+
+function parseStreamToolArguments(value: string, toolName: string): unknown {
+  if (!value.trim()) throw new Error(`Invalid streamed tool arguments for ${toolName || 'unknown tool'}: empty JSON`)
+  try {
+    return JSON.parse(value) as unknown
+  } catch {
+    throw new Error(`Invalid streamed tool arguments JSON for ${toolName || 'unknown tool'}`)
+  }
+}
+
+function normalizeStreamToolCallId(id: string, index: number, prefix?: string): string {
+  const fallback = id || `stream-tool-${index}`
+  if (!prefix) return fallback
+  const loosePrefix = prefix.endsWith('_') ? prefix.slice(0, -1) : prefix
+  return fallback.startsWith(prefix) || fallback.startsWith(loosePrefix) ? fallback : `${prefix}${fallback}`
+}
+
+function openAiChatStepFromStreamEvents(events: Array<{ data: unknown }>, toolCallIdPrefix?: string): AgentStep {
+  const textParts: string[] = []
+  const blockTypes: string[] = []
+  const toolCalls = new Map<number, StreamToolCallAccumulator>()
+  let stopReason: string | undefined
+  let usage: ProviderUsage | undefined
+
+  for (const event of events) {
+    const data = event.data
+    if (!data || typeof data !== 'object') continue
+    usage = normalizeUsage((data as { usage?: unknown }).usage, 'openai-chat-completions-stream', {
+      input: ['prompt_tokens'],
+      output: ['completion_tokens'],
+      total: ['total_tokens'],
+    }) ?? usage
+    const choices = (data as { choices?: unknown }).choices
+    if (!Array.isArray(choices)) continue
+    for (const choice of choices) {
+      if (!choice || typeof choice !== 'object') continue
+      const finishReason = (choice as { finish_reason?: unknown }).finish_reason
+      if (typeof finishReason === 'string') stopReason = finishReason
+      const delta = (choice as { delta?: unknown }).delta
+      if (!delta || typeof delta !== 'object') continue
+
+      const content = (delta as { content?: unknown }).content
+      if (typeof content === 'string') {
+        blockTypes.push('delta_content')
+        if (content.length > 0) textParts.push(content)
+      }
+
+      const deltaToolCalls = (delta as { tool_calls?: unknown }).tool_calls
+      if (Array.isArray(deltaToolCalls)) {
+        blockTypes.push('delta_tool_calls')
+        for (const fallback of deltaToolCalls.keys()) {
+          const toolDelta = deltaToolCalls[fallback]
+          if (!toolDelta || typeof toolDelta !== 'object') continue
+          const index = typeof (toolDelta as { index?: unknown }).index === 'number'
+            ? (toolDelta as { index: number }).index
+            : fallback
+          const current = toolCalls.get(index) ?? { id: '', name: '', arguments: '' }
+          const id = (toolDelta as { id?: unknown }).id
+          if (typeof id === 'string') current.id += id
+          const type = (toolDelta as { type?: unknown }).type
+          if (typeof type === 'string') current.type = type
+          const fn = (toolDelta as { function?: unknown }).function
+          if (fn && typeof fn === 'object') {
+            const name = (fn as { name?: unknown }).name
+            if (typeof name === 'string') current.name += name
+            const args = (fn as { arguments?: unknown }).arguments
+            if (typeof args === 'string') current.arguments += args
+          }
+          toolCalls.set(index, current)
+        }
+      }
+    }
+  }
+
+  const calls = [...toolCalls.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, call], index) => {
+      const toolName = call.name
+      return {
+        id: normalizeStreamToolCallId(call.id, index, toolCallIdPrefix),
+        toolName,
+        input: parseStreamToolArguments(call.arguments, toolName),
+      }
+    })
+
+  return assistantStepFromParts({
+    textParts: textParts.length > 0 ? [textParts.join('')] : [],
+    toolCalls: calls,
+    diagnostics: { stopReason, blockTypes },
+    usage,
+  })
 }
 
 function toOpenAiResponsesInput(messages: ChatMessage[]): JsonObject[] {

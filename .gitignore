@@ -8,3 +8,6 @@ dist/
 # MiniCode local artifacts
 .mini-code/settings.local.json
 .mini-code/sessions/
+
+# Local Codex API switcher profiles may contain API keys.
+scripts/switch-codex-api.local.json

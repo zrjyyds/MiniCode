@@ -9,6 +9,9 @@ export type RealAgentProtocol =
 export type RealAgentConfig = {
   schemaVersion: '1.0'
   protocol?: RealAgentProtocol
+  stream?: boolean
+  streamIncludeUsage?: boolean
+  streamToolCallIdPrefix?: string
   baseUrlEnv: string
   apiKeyEnv: string
   modelEnv: string
@@ -32,6 +35,9 @@ export type ResolvedRealAgentConfig = {
   requestTimeoutMs: number
   maxOutputTokens: number
   maxRetries: number
+  stream: boolean
+  streamIncludeUsage: boolean
+  streamToolCallIdPrefix?: string
   mcpServers: RealAgentConfig['mcpServers']
   sourcePath: string
 }
@@ -63,6 +69,14 @@ function requirePositiveInteger(value: unknown, label: string): number {
   return value
 }
 
+function optionalBoolean(value: unknown, label: string): boolean | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'boolean') {
+    throw new Error(`${label} must be a boolean`)
+  }
+  return value
+}
+
 export function validateRealAgentConfig(value: unknown): RealAgentConfig {
   assertObject(value, 'real agent config')
   if (value.schemaVersion !== '1.0') {
@@ -76,6 +90,11 @@ export function validateRealAgentConfig(value: unknown): RealAgentConfig {
   return {
     schemaVersion: '1.0',
     protocol: protocol as RealAgentProtocol,
+    stream: optionalBoolean(value.stream, 'stream'),
+    streamIncludeUsage: optionalBoolean(value.streamIncludeUsage, 'streamIncludeUsage'),
+    streamToolCallIdPrefix: value.streamToolCallIdPrefix === undefined
+      ? undefined
+      : requireString(value.streamToolCallIdPrefix, 'streamToolCallIdPrefix'),
     baseUrlEnv: requireString(value.baseUrlEnv, 'baseUrlEnv'),
     apiKeyEnv: requireString(value.apiKeyEnv, 'apiKeyEnv'),
     modelEnv: requireString(value.modelEnv, 'modelEnv'),
@@ -116,6 +135,9 @@ export function resolveRealAgentConfig(
     requestTimeoutMs: config.requestTimeoutMs,
     maxOutputTokens: config.maxOutputTokens,
     maxRetries: config.maxRetries,
+    stream: config.stream ?? false,
+    streamIncludeUsage: config.streamIncludeUsage ?? false,
+    streamToolCallIdPrefix: config.streamToolCallIdPrefix,
     mcpServers: config.mcpServers ?? {},
     sourcePath,
   }
